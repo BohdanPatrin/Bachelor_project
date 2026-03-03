@@ -2,7 +2,7 @@ import fake
 from faker import Faker
 import pandas as pd
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 
 class Account:
@@ -72,6 +72,60 @@ class Generator:
 
 
     def inject_structuring(self, target_account, total_amount, num_smurfs, start_time):
+        average_amount = total_amount / num_smurfs
+
+        random_minutes = random.randint(5, 30)
+        smurfs = random.sample(self.accounts, num_smurfs)
+        time_gap = timedelta(minutes=random_minutes)
+
+        if average_amount <= 9500:
+            for smurf in smurfs:
+                self.transactions.append(Transaction(
+                    date=start_time + time_gap,
+                    amount_in=average_amount,
+                    currency_in="USD",
+                    bank_in=target_account.bank_id,
+                    amount_out=average_amount,
+                    currency_out="USD",
+                    bank_out=smurf.bank_id,
+                    sender=smurf.id,
+                    reciever=target_account.id,
+                    id = str(uuid.uuid4()),
+                    format= "CARD"
+                 ))
+        else:
+            for smurf in smurfs:
+                if(total_amount > 9500):
+                  self.transactions.append(Transaction(
+                    date=start_time + time_gap,
+                    amount_in=9500,
+                    currency_in="USD",
+                    bank_in=target_account.bank_id,
+                    amount_out=9500,
+                    currency_out="USD",
+                    bank_out=smurf.bank_id,
+                    sender=smurf.id,
+                    reciever=target_account.id,
+                    id = str(uuid.uuid4()),
+                    format= "CARD"
+                 ))
+                else: self.transactions.append(Transaction(
+                    date=start_time + time_gap,
+                    amount_in=total_amount,
+                    currency_in="USD",
+                    bank_in=target_account.bank_id,
+                    amount_out=total_amount,
+                    currency_out="USD",
+                    bank_out=smurf.bank_id,
+                    sender=smurf.id,
+                    reciever=target_account.id,
+                    id=str(uuid.uuid4()),
+                    format="CARD"
+                ))
+                break
+
+
+
 
     def inject_circular_flow(self, chain_length, amount, start_time):
 
