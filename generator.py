@@ -1,9 +1,9 @@
-import fake
 from faker import Faker
 import pandas as pd
 import random
 from datetime import datetime, timedelta
 import uuid
+fake = Faker()
 
 class Account:
     def __init__(self, id, bank_name, bank_id, entity_id, entity_name):
@@ -14,7 +14,7 @@ class Account:
         self.entity_name = entity_name
 
 class Transaction:
-    def __init__(self, date, amount_in, currency_in, bank_in, amount_out, currency_out, bank_out, sender, reciever, id, format):
+    def __init__(self, date, amount_in, currency_in, bank_in, amount_out, currency_out, bank_out, sender, reciever, id, format, is_laundering=0):
         self.date = date
         self.amount_in = (amount_in, currency_in)
         self.amount_out = (amount_out, currency_out)
@@ -24,6 +24,7 @@ class Transaction:
         self.reciever = reciever
         self.id = id
         self.format = format
+        self.is_laundering = is_laundering
 
 class Generator:
     def __init__(self, accounts = None, transactions = None):
@@ -72,61 +73,112 @@ class Generator:
 
 
     def inject_structuring(self, target_account, total_amount, num_smurfs, start_time):
-        average_amount = total_amount / num_smurfs
-
-        random_minutes = random.randint(5, 30)
+        burden_per_smurf = round(total_amount / num_smurfs, 2)
         smurfs = random.sample(self.accounts, num_smurfs)
-        time_gap = timedelta(minutes=random_minutes)
 
-        if average_amount <= 9500:
-            for smurf in smurfs:
+        for smurf in smurfs:
+            remaining_for_this_smurf = burden_per_smurf
+
+            # Give each smurf random start time within a 24-hour window
+            smurf_clock = start_time + timedelta(hours=random.randint(0, 24), minutes=random.randint(1, 59))
+
+            while remaining_for_this_smurf > 0:
+                if remaining_for_this_smurf > 9500:
+                    transfer_amount = 9500.00
+                else:
+                    transfer_amount = round(remaining_for_this_smurf, 2)
+
                 self.transactions.append(Transaction(
-                    date=start_time + time_gap,
-                    amount_in=average_amount,
+                    date=smurf_clock,
+                    amount_in=transfer_amount,
                     currency_in="USD",
                     bank_in=target_account.bank_id,
-                    amount_out=average_amount,
-                    currency_out="USD",
-                    bank_out=smurf.bank_id,
-                    sender=smurf.id,
-                    reciever=target_account.id,
-                    id = str(uuid.uuid4()),
-                    format= "CARD"
-                 ))
-        else:
-            for smurf in smurfs:
-                if(total_amount > 9500):
-                  self.transactions.append(Transaction(
-                    date=start_time + time_gap,
-                    amount_in=9500,
-                    currency_in="USD",
-                    bank_in=target_account.bank_id,
-                    amount_out=9500,
-                    currency_out="USD",
-                    bank_out=smurf.bank_id,
-                    sender=smurf.id,
-                    reciever=target_account.id,
-                    id = str(uuid.uuid4()),
-                    format= "CARD"
-                 ))
-                else: self.transactions.append(Transaction(
-                    date=start_time + time_gap,
-                    amount_in=total_amount,
-                    currency_in="USD",
-                    bank_in=target_account.bank_id,
-                    amount_out=total_amount,
+                    amount_out=transfer_amount,
                     currency_out="USD",
                     bank_out=smurf.bank_id,
                     sender=smurf.id,
                     reciever=target_account.id,
                     id=str(uuid.uuid4()),
-                    format="CARD"
+                    format=random.choice(['WIRE', 'CARD', 'ACH']),
+                    is_laundering = 1
                 ))
-                break
+
+                remaining_for_this_smurf -= transfer_amount
+
+                # If this specific smurf has to send again - we push their personal clock forward by 1 to 3 days to avoid daily detection limits
+                if remaining_for_this_smurf > 0:
+                    smurf_clock += timedelta(days=random.randint(1, 3), hours=random.randint(1, 12))
 
 
+    def inject_circular_flow(self, chain_length, initial_amount, start_time):
+        if chain_length < 2:
+            print("WARNING: Chain length must be at least 2 to form a circular flow.")
+            return
 
+        ring_members = random.sample(self.accounts, chain_length)
+        current_time = start_time
+        current_amount = initial_amount
 
-    def inject_circular_flow(self, chain_length, amount, start_time):
+        for i in range(chain_length):
+            sender = ring_members[i]
+            receiver = ring_members[(i + 1) % chain_length]
+
+            current_time += timedelta(hours=random.randint(2, 24), minutes=random.randint(0, 59))
+
+            self.transactions.append(Transaction(
+                date=current_time,
+                amount_in=current_amount,
+                currency_in="USD",
+                bank_in=receiver.bank_id,
+                amount_out=current_amount,
+                currency_out="USD",
+                bank_out=sender.bank_id,
+                sender=sender.id,
+                reciever=receiver.id,
+                id=str(uuid.uuid4()),
+                format= random.choice(['WIRE', 'CARD', 'ACH']),
+                is_laundering=1
+            ))
+
+            # Receiver takes their commission (1%-3%) before the next transfer in the loop
+            fee_percentage = random.uniform(0.01, 0.03)
+            current_amount = round(current_amount * (1 - fee_percentage), 2)
+
 
     def export_data(self, tx_filename, truth_filename):
+        print(f"Exporting {len(self.transactions)} transactions to {tx_filename}...")
+
+        # Convert to  list of dictionaries
+        data = []
+        for tx in self.transactions:
+            data.append({
+                'Timestamp': tx.date.strftime('%Y/%m/%d %H:%M'),
+                'From Bank': tx.bank_out,
+                'Account': tx.sender,
+                'To Bank': tx.bank_in,
+                'Account.1': tx.reciever,
+                'Amount Received': tx.amount_in[0],
+                'Receiving Currency': tx.amount_in[1],
+                'Amount Paid': tx.amount_out[0],
+                'Payment Currency': tx.amount_out[1],
+                'Payment Format': tx.format,
+                'Is Laundering': tx.is_laundering,
+                'Transaction ID': tx.id
+            })
+
+        # Sort chronologically
+        df = pd.DataFrame(data)
+        df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+        df = df.sort_values(by='Timestamp')
+
+        # Export the main file
+        main_export_df = df.drop(columns=['Transaction ID', 'Is Laundering'])
+        main_export_df.to_csv(tx_filename, index=False)
+        print(f"Successfully saved {tx_filename}!")
+
+        # Export the answer key
+        truth_export_df = df[['Transaction ID', 'Timestamp', 'Account', 'Account.1', 'Is Laundering']]
+        truth_export_df.to_csv(truth_filename, index=False)
+        print(f"Successfully saved {truth_filename}!")
+
+
