@@ -144,6 +144,34 @@ class Generator:
             fee_percentage = random.uniform(0.01, 0.03)
             current_amount = round(current_amount * (1 - fee_percentage), 2)
 
+    def inject_velocity_spike(self, target_account, num_transactions, amount_per_tx, start_time, duration_hours=2):
+        # Calculate the total time window in minutes
+        total_minutes = duration_hours * 60
+
+        for _ in range(num_transactions):
+            # Pick a random receiver that isn't the target account
+            receiver = random.choice(self.accounts)
+            while receiver.id == target_account.id:
+                receiver = random.choice(self.accounts)
+
+            # Generate a random time offset strictly within our short spike window
+            random_offset = timedelta(minutes=random.randint(0, total_minutes))
+            tx_time = start_time + random_offset
+
+            self.transactions.append(Transaction(
+                date=tx_time,
+                amount_in=amount_per_tx,
+                currency_in="USD",
+                bank_in=receiver.bank_id,
+                amount_out=amount_per_tx,
+                currency_out="USD",
+                bank_out=target_account.bank_id,
+                sender=target_account.id,
+                reciever=receiver.id,
+                id=str(uuid.uuid4()),
+                format="WIRE",  # Wire transfers are common for rapid cash-outs
+                is_laundering=1
+            ))
 
     def export_data(self, tx_filename, truth_filename):
         print(f"Exporting {len(self.transactions)} transactions to {tx_filename}...")
