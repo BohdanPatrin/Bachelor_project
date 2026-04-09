@@ -208,5 +208,3 @@ class Generator:
         truth_export_df = df[['Transaction ID', 'Timestamp', 'Account', 'Account.1', 'Is Laundering']]
         truth_export_df.to_csv(truth_filename, index=False)
         print(f"Successfully saved {truth_filename}!")
-
-
