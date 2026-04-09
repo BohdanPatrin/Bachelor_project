@@ -32,12 +32,60 @@ class DetectionEngine:
                         self.suspicious_transactions.add(composite_key)
 
     def detect_structuring(self, threshold=10000, time_window_days=7):
-        #TODO
-        pass
+        # Sort transactions by timestamps and set it as their index
+        df_time = self.df.sort_values(by='Timestamp').set_index('Timestamp')
+
+        # Filter out large transactions whose amount is >= threshold
+        df_small_txs = df_time[df_time['Amount Paid'] < threshold]
+
+        for receiver_account, group_df in df_small_txs.groupby('Account.1'):
+            # Sum received amounts by rolling time window
+            window_sums = group_df['Amount Paid'].rolling(f'{time_window_days}d').sum()
+            if (window_sums >= threshold).any():
+                self.suspicious_accounts.add(receiver_account)
+                # Extract timestamps where the alarm triggered
+                spike_times = window_sums[window_sums >= threshold].index
+                for spike_time in spike_times:
+                    start_time = spike_time - pd.Timedelta(days=time_window_days)
+                    # Grab all the small transactions within that window
+                    window_txs = group_df.loc[start_time:spike_time]
+                    for tx_time, row in window_txs.iterrows():
+                        composite_key = (tx_time, row['Account'], receiver_account, row['Amount Paid'])
+                        self.suspicious_transactions.add(composite_key)
 
     def detect_circular_flows(self):
-        # TODO
-        pass
+        # Create directed multigraph with transactions as edges
+        G = nx.MultiDiGraph()
+        for _, row in self.df.iterrows():
+            sender = row['Account']
+            receiver = row['Account.1']
+
+            G.add_edge(sender, receiver,
+                       timestamp=row['Timestamp'],
+                       amount=row['Amount Paid'])
+
+        # Find all cycles
+        cycles = list(nx.simple_cycles(G))
+
+        # Process them
+        for cycle_nodes in cycles:
+            if len(cycle_nodes) < 2:
+                continue
+
+            for account in cycle_nodes:
+                self.suspicious_accounts.add(account)
+
+            cycle_length = len(cycle_nodes)
+            for i in range(cycle_length):
+                sender = cycle_nodes[i]
+                # Use modulo to wrap back to the first account
+                receiver = cycle_nodes[(i + 1) % cycle_length]
+                edges = G.get_edge_data(sender, receiver)
+
+                if edges:
+                    for edge_key, edge_attr in edges.items():
+                        composite_key = (edge_attr['timestamp'], sender, receiver, edge_attr['amount'])
+                        self.suspicious_transactions.add(composite_key)
 
     def evaluate_performance(self, truth_filepath):
         #TODO
